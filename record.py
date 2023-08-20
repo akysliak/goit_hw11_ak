@@ -1,6 +1,8 @@
 from fields import *
 from collections import deque
 from myexception import *
+from datetime import datetime
+import warnings
 
 
 class Record:
@@ -8,18 +10,30 @@ class Record:
     Class representing a single record in an address book.
     """
 
-    def __init__(self, name: str): # not allowing to provide phones and emails here to avoid wrong data types
+    def __init__(self, name: str, phone=None, email=None, birthday=None):
         self.name = Name(name)
         self.phones = deque()
         self.emails = deque()
+        self.birthday = None
+        if phone:
+            self.add_phone_number(phone)
+        if email:
+            self.add_email(email)
+        if birthday:
+            self.edit_birthday(birthday)
 
     def set_name(self, new_name: str):
-        self.name.value = new_name
+        self.name.set_value(new_name)
 
     def get_name(self):
-        return self.name.value
+        return self.name.get_value()
 
     def get_all_values(self, el_list: deque):
+        """
+        Returns list of values stored in a collection of Field objects.
+        :param el_list: collection of Field objects.
+        :return: list of values stored in the elements within el_list.
+        """
         return [el.get_value() for el in el_list]
 
     def get_phones(self):
@@ -32,8 +46,24 @@ class Record:
     def get_emails(self):
         return self.get_all_values(self.emails)
 
+    def get_birthday(self):
+        if self.birthday:
+            return self.birthday.get_value()
+        else:
+            return ""
+
     def edit_name(self, new_name):
         self.name.set_value(new_name)
+
+    def edit_birthday(self, new_birthday):
+        if not self.birthday:
+            self.birthday = Birthday(new_birthday)
+        else:
+            warnings.warn(f"WARNING: you are overwriting existing birthday info. Old info: '{self.birthday.get_value()}', new info: '{new_birthday}'.")
+            self.birthday.set_value(new_birthday)
+
+    def remove_birthday(self):
+        self.birthday = None
 
     def is_in_list(self, el: Field, el_list: deque):
         el_value = el.get_value()
@@ -213,6 +243,37 @@ class Record:
             old_el = None
         self.edit_field_element(el_list=self.emails, new_el=new_el, old_el=old_el, idx=idx, first=first, last=last)
 
+    def days_to_birthday(self):
+        if not self.birthday:
+            return "unknown (no information about birthday)"
+        cur_date = datetime.now().replace(minute=0, hour=0, second=0, microsecond=0)
+        cur_year = cur_date.year
+        birthday_day, birthday_month = self.birthday.get_value().split("/")
+        birthday_day = int(birthday_day)
+        birthday_month = int(birthday_month)
+        if birthday_month > cur_date.month or (birthday_month == cur_date.month and birthday_day >= cur_date.day):
+            birthday_year = cur_year
+        else:
+            birthday_year = cur_year + 1
+        try:
+            birthday_date = datetime(day=birthday_day, month=birthday_month, year=birthday_year)
+        except ValueError:
+            if birthday_day == 29 and birthday_month == 2:
+                birthday_date = datetime(day=1, month=3, year=birthday_year)
+            else:
+                raise MyException(f"Unknown problem with the birthday date ('{self.get_birthday()}') of the contact '{self.get_name()}, days till birthday cannot be calculated.")
+
+        delta_time = birthday_date - cur_date
+        return delta_time.days
+
+    def display_birthday_info(self):
+        if self.birthday is None:
+            return ""
+        else:
+            days_till_birthday = self.days_to_birthday()
+            days = "days" if days_till_birthday != 1 else "day"
+            return f"{self.birthday.get_value()} ({days_till_birthday} {days} till birthday)"
+
     def to_string(self):
 
         if len(self.phones) == 1:
@@ -226,11 +287,13 @@ class Record:
         line = "----------------------------------------------------------------"
         phones = "\n\t\t\t".join(phones)
         emails = "\n\t\t\t".join(emails)
-        res = f"CONTACT INFO\nNAME:\t\t{self.get_name()}\n{line}\nPHONE(S):\t{phones}\n{line}\nEMAIL(S):\t{emails}"
-        return(res)
+        birthday = self.display_birthday_info()
+        res = f"CONTACT INFO\nNAME:\t\t{self.get_name()}\n{line}\nBIRTHDAY:\t{birthday}\n{line}\nPHONE(S):\t{phones}\n{line}\nEMAIL(S):\t{emails}"
+        return res
 
 
 if __name__ == "__main__":
+    '''
     rec = Record("user1")
     rec.add_phone_number("1374658")
     #rec.add_phone_number("1374658")
@@ -258,4 +321,8 @@ if __name__ == "__main__":
     #rec.edit_phone_number(old_el="1374658", new_el="new_phone")
     rec.edit_phone_number(old_el="1374658", new_el="new_phone") # (self, new_el: str, old_el="", idx=None, first=False, last=False
     print(rec.to_string())
-
+    '''
+    rec = Record("test")
+    rec.edit_birthday("18/08")
+    print(rec.days_to_birthday())
+    print(rec.to_string())

@@ -3,20 +3,37 @@ This is the main script of the application.
 
 Notes:
     Possible commands: call "help" to get the command list and info
-    The format of phone numbers and emails is checked with a very
-        simple strategy, warning appears if the input does not pass validation
-    Command "store" stores the current address books in the folder "users"
-        in the same directory (will be created if does not exist),
-        in a file <username>.bin
-    Recognition of the commands is case-insensitive,
-        the arguments are treated with respect to their case
-        (e.g. name "ann" != "Ann")
-    Provided arguments which are irrelevant for the specified command
-        will be ignored (the command will be executed)
+    The format of phone numbers and e-mails is checked with a very
+        simple strategy, warnings can appear if the input does not pass validation
+    Phone validation: phone has to consist of digits, optionally preceded with one "+";
+                      additionally, a warning appears if the number of digits < 3 or > 15
+    Birthday: year of the birthday is ignored even if provided, only day_info/month_info is stored
+    Birthday validation: it is checked if the combination day/month (provided in a correct format)
+                        is generally possible, irrespective of the year
+
+    As before:
+        Command "store" stores the current address books in the folder "users"
+            in the same directory (will be created if does not exist),
+            in a file <username>.bin
+        Recognition of the commands is case-insensitive,
+            the arguments are treated with respect to their case
+            (e.g. name "ann" != "Ann")
+        Provided arguments which are irrelevant for the specified command
+            will be ignored (the command will be executed)
+
+    Changes made:
+        - added parameters "birthday", "r-birthday" to the "change" command
+        - added possibility to enter birthday when a contact is created
+        - added possibility to get birthday info displayed: command "birthday"
+        - added birthday info to the display of a record
+        - added possibility to find a record by the birthday date (find -b)
+        - added parameter <n> for the number of contacts per page to commands "show all", "find"
+        - implemented property-setter combination for the attribute "value" in classes Phone and Birthday
 
 Possible improvements:
-    improve format checking of the phone numbers/emails
-    extend 'add' command: to allow multiple phones and emails to be provided
+    for birthday: accept the birthday year as well and display the future age of the contact
+    improve format checking of the phone numbers/e-mails
+    extend 'add' command: to allow multiple phones and e-mails to be provided
     improve storing and printing of the objects
 """
 
@@ -29,6 +46,8 @@ WARNING_COLOR = '\033[93m'  # '\033[92m' #'\033[93m'
 RESET_COLOR = '\033[0m'
 
 IDX_STRING = "idx="
+WARNING_WRONG_N_PER_PAGE = f"Parameter for the number of records per page should be a positive integer. Parameter " \
+                           f"which was given: "
 INSTRUCTION_CHANGE = "\t<name> -n <new_name>\t-\tto change the contact name from its current value\n" \
                      "\t\t\t\t\t\t\t\t<name> to the value <new_name>\n" \
                      f"\t<name> [+p|+e] <phone|email> ({IDX_STRING}[first|last|<idx>])\t-\tto add a new\n" \
@@ -51,18 +70,23 @@ INSTRUCTION_CHANGE = "\t<name> -n <new_name>\t-\tto change the contact name from
                      "\t\t\t\t\t\t\t\tspecifying the target phone number/e-mail by its value\n" \
                      f"\t\t\t\t\t\t\t\t(<phone|email>) or position ({IDX_STRING}) in the record - at the\n" \
                      "\t\t\t\t\t\t\t\tbeginning (first), end (last), specific index\n" \
-                     "\t\t\t\t\t\t\t\t(<idx> starting with 1)"
+                     "\t\t\t\t\t\t\t\t(<idx> starting with 1)\n" \
+                     f"\t<name> birthday <new_birthday>\t-\tto add or edit the birthday date in the record\n" \
+                     "\t\t\t\t\t\t\t\twith the name <name> (the old value will be replaced)\n" \
+                     f"\t<name> r-birthday\t-\tto remove the birthday date from the record with the name <name>."
 
-INSTRUCTION_FIND = "\t-n <name>\t-\tto find the record with the contact name <name>\n" \
-                   "\t-p <phone>\t-\tto find the record(s) with the phone number <phone>\n" \
-                   "\t-e <email>\t-\tto find the record(s) with the e-mail <email>"
+INSTRUCTION_FIND = "\t-n <name> (<n>)\t\t-\tto find the record with the contact name <name>\n" \
+                   "\t-p <phone> (<n>)\t-\tto find the record(s) with the phone number <phone>\n" \
+                   "\t-e <email> (<n>)\t-\tto find the record(s) with the e-mail <email>\n" \
+                   "\t-b <birthday> (<n>)\t-\tto find the record(s) with the birthday <birthday> (format: day/month)\n" \
+                   "\t(The optional parameter <n> specifies the maximum number of records to be displayed at once.)"
 
 HELP_STRING = "This programme supports the following commands\n" \
               "(elements in () are optional, [] specify options to select from):\n" \
               "1.\tGreeting:\n" \
               "\thello\n" \
               "2.\tAdding new contact to the address book:\n" \
-              "\tadd <name> (<phone> <email>)\n" \
+              "\tadd <name> (<phone> <email> <birthday>)\n" \
               f"3.\tEditing existing contact in the address book:\n{INSTRUCTION_CHANGE}\n" \
               f"4.\tSearching for a record in the address book:\n{INSTRUCTION_FIND}\n" \
               "5.\tDeleting a contact from the address book:\n" \
@@ -71,21 +95,24 @@ HELP_STRING = "This programme supports the following commands\n" \
               "\tphone <name>\n" \
               "7.\tShowing all emails saved for a given contact:\n" \
               "\temail <name>\n" \
-              "8.\tShowing all records in the address book:\n" \
-              "\tshow all\n" \
-              "9.\tShowing the username in the address book (the name of the owner):\n" \
+              "8.\tShowing birthday info saved for a given contact:\n" \
+              "\tbirthday <name>\n" \
+              "9.\tShowing all records in the address book:\n" \
+              "\tshow all (<n>)\n" \
+              "\t(The optional parameter <n> specifies the maximum number of records to be displayed at once.)\n"\
+              "10.\tShowing the username in the address book (the name of the owner):\n" \
               "\tusername\n" \
-              "10.\tChanging the username in the address book:\n" \
+              "11.\tChanging the username in the address book:\n" \
               "\tnew username <username>\n" \
-              "11.\tStoring current address book into a file (under the current username):\n" \
+              "12.\tStoring current address book into a file (under the current username):\n" \
               "\tstore\n" \
-              "12.\tLoading an address book from a file:\n" \
+              "13.\tLoading an address book from a file:\n" \
               "\tload <username>\n" \
-              "13.\tExiting the programme:\n" \
+              "14.\tExiting the programme:\n" \
               "\tgood bye\n" \
               "\tclose\n" \
               "\texit\n" \
-              "14.\tGetting help:\n" \
+              "15.\tGetting help:\n" \
               "\thelp\n" \
               "\nAll commands are case insensitive."
 
@@ -111,21 +138,24 @@ def add_handler(args):  # takes *arguments: 0-unlimited
     :return: confirmation that the new record with the specified contact name was added.
     """
     if len(args) < 1:
-        raise ValueError("Give me a name for the new contact, please.")
-    name = args[
-        0]  # change to 1) args[0].title() if you want to always capitalize the 1st letter or to 2) args[0].lower().title()
+        raise MyException("Give me a name for the new contact, please.")
+    name = args[0]  # change to 1) args[0].title() if you want to always capitalize the 1st letter or to 2) args[0].lower().title()
     record = Record(name)
 
     phone = "NO PHONE NUMBER"
-    email = "NO EMAIL"
+    email = "NO E-MAIL"
+    birthday = "NO BIRTHDAY DATE"
     if len(args) > 1:
         phone = args[1]
         record.add_phone_number(phone)
     if len(args) > 2:
         email = args[2]
         record.add_email(email)
+    if len(args) > 3:
+        birthday = args[3]
+        record.edit_birthday(birthday)
     ADDRESSBOOK.add_record(record)
-    return f"New contact '{name}' with the phone number '{phone}' and email '{email}' successfully added."
+    return f"New contact '{name}' with the phone number '{phone}', e-mail '{email}' and the birthday date '{birthday}' successfully added."
 
 
 def change_handler(args):
@@ -134,11 +164,16 @@ def change_handler(args):
     :param args: expects arguments which specify the change to be performed.
     :return: confirmation of the performed change.
     """
-    if len(args) < 3 or (args[1].lower() not in ["-n", "+p", "+e", "-p", "-e", "edit-e", "edit-p"]) or \
+    if len(args) < 2 or (len(args) == 2 and args[1].lower() not in ["r-birthday"]) or\
+            (args[1].lower() not in ["-n", "+p", "+e", "-p", "-e", "edit-e", "edit-p", "birthday", "r-birthday"]) or \
             (args[1].lower() in ["edit-e", "edit-p"] and len(args) < 4):
         raise MyException(f"Please, specify the change parameters as follows:\n{INSTRUCTION_CHANGE}")
     param = args[1].lower()
-    if param == "-n":
+    if param == "birthday":
+        change = Change(changetype=ChangeType.EDIT_BIRTHDAY, name=args[0], new_birthday=args[2])
+    elif param == "r-birthday":
+        change = Change(changetype=ChangeType.REMOVE_BIRTHDAY, name=args[0])
+    elif param == "-n":
         change = Change(changetype=ChangeType.EDIT_NAME, name=args[0], new_name=args[2])
     elif param in ["+p", "+e"]:
         idx = None
@@ -180,14 +215,13 @@ def change_handler(args):
     record = ADDRESSBOOK.edit_record(change)
     return f"The record was successfully edited. Updated record:\n{record.to_string()}"
 
-
 def find_handler(args):
     """
-    Finds a record/records in the address book: by name, phone number or email.
+    Finds a record/records in the address book: by name, phone number, e-mail or birthday date.
     :param args: parameters to find the record(s).
     :return: the string representing the record(s).
     """
-    if len(args) < 2 or args[0].lower() not in ["-n", "-p", "-e"]:
+    if len(args) < 2 or args[0].lower() not in ["-n", "-p", "-e", "-b"]:
         raise MyException(f"Please, specify the search parameter, e.g.:\n{INSTRUCTION_FIND}")
     match args[0].lower():
         case "-n":
@@ -199,12 +233,20 @@ def find_handler(args):
         case "-e":
             param = "e-mail"
             res = ADDRESSBOOK.get_record_by_email(args[1])
+        case "-b":
+            param = "birthday date"
+            res = ADDRESSBOOK.get_record_by_birthday(args[1])
     if not res:
         return f"No record with the {param} '{args[1]}' found."
     elif type(res) == Record:
         return res.to_string()
-    else:
-        return "\n\n".join(record.to_string() for record in res)
+    elif len(args) > 2:
+        try:
+            iterator = ABIterator(res, args[2])
+            return iterator
+        except MyIteratorNException:
+            warnings.warn(WARNING_WRONG_N_PER_PAGE + f"'{args[2]}' (ignored).")
+    return "\n\n".join(record.to_string() for record in res)
 
 
 def delete_handler(args):
@@ -227,12 +269,12 @@ def phone_handler(args):
     :return: phone number(s) of the specified contact (numerated if > 1).
     """
     if not args:
-        raise ValueError("Please, enter the contact name.")
+        raise MyException("Please, enter the contact name.")
     name = args[0]
     record = ADDRESSBOOK.get_record_by_name(name)
     phones = record.get_phones()
     if len(phones) < 1:
-        return f"no phones stored for {name}"
+        return f"No phones stored for {name}."
     if len(phones) == 1:
         return phones[0]
     return "\n".join(f"{position + 1}. {phone}" for position, phone in enumerate(phones))
@@ -240,28 +282,50 @@ def phone_handler(args):
 
 def email_handler(args):
     """
-    Finds all emails saved for a given contact.
-    :param args: name of the contact whose email(s) has to be displayed.
-    :return: email(s) of the specified contact (numerated if > 1).
+    Finds all e-mails saved for a given contact.
+    :param args: name of the contact whose e-mail(s) has to be displayed.
+    :return: e-mail(s) of the specified contact (numerated if > 1).
     """
     if not args:
-        raise ValueError("Please, enter the contact name.")
+        raise MyException("Please, enter the contact name.")
     name = args[0]
     record = ADDRESSBOOK.get_record_by_name(name)
     emails = record.get_emails()
     if len(emails) < 1:
-        return f"no emails stored for {name}"
+        return f"No e-mails stored for {name}."
     if len(emails) == 1:
         return emails[0]
     return "\n".join(f"{position + 1}. {email}" for position, email in enumerate(emails))
 
 
-def show_all_handler(*args):
+def birthday_handler(args):
+    """
+    Displays the birthday info (birthday date and the number of days remaining till the birthday)
+    saved for a given contact.
+    :param args: name of the contact whose birthday info has to be displayed.
+    :return: birthday info for the specified contact.
+    """
+    if not args:
+        raise MyException("Please, enter the contact name.")
+    name = args[0]
+    record = ADDRESSBOOK.get_record_by_name(name)
+    res = record.display_birthday_info()
+    if not res:
+        res = f"No birthday information stored for {name}."
+    return res
+
+def show_all_handler(args):
     """
     Handles showing all records in the address book.
     :param args: no parameters expected.
     :return: string representing all the contacts in the address book.
     """
+    if len(args) > 0:
+        try:
+            iterator = ADDRESSBOOK.iterator(args[0])
+            return iterator
+        except MyIteratorNException:
+            warnings.warn(WARNING_WRONG_N_PER_PAGE + f"'{args[0]}' (ignored).")
     res = ADDRESSBOOK.to_string()
     if not res:
         res = "Address book is empty."
@@ -329,10 +393,11 @@ COMMANDS = {
     hello_handler: ["hello"],  # greeting
     add_handler: ["add"],  # adding new contact to the address book
     change_handler: ["change"],  # changing existing contact in the address book
-    find_handler: ["find"],  # finding and showing a record in the address book: by name, phone number or email
+    find_handler: ["find"],  # finding and showing a record in the address book: by name, phone number or e-mail
     delete_handler: ["delete"],  # deleting a contact from the address book
     phone_handler: ["phone"],  # showing all phone numbers saved for a given contact
-    email_handler: ["email"],  # showing all emails saved for a given contact
+    email_handler: ["email"],  # showing all e-mails saved for a given contact
+    birthday_handler: ["birthday"], # ! showing the birthday info stored for a given contact
     show_all_handler: ["show all"],  # showing all records in the address book
     get_username_handler: ["username"],  # showing the username in the address book
     set_username_handler: ["new username"],  # changing the username in the address book
@@ -357,7 +422,7 @@ def input_error(fnc):
     def inner(*args):
         try:
             fnc(*args)
-        except (IndexError, KeyError, ValueError, MyException) as e:
+        except MyException as e:
             print(str(e).replace('"', ""))
             inner()
 
@@ -377,7 +442,19 @@ def main():
             result = func(data)
         for w in warning_list:
             print(f"\t{WARNING_COLOR}{w.message}{RESET_COLOR}")
-        print(result)
+        if isinstance(result, ABIterator):
+            for el in result:
+                print(el)
+                u_input = input("Show more? ([y/n]): ")
+                while not (u_input.startswith("y") or u_input.startswith("n")):
+                    u_input = input("Please, enter one of the options: 'y' to show more results, 'n' to finish this "
+                                    "command.\n")
+                if u_input.startswith("n"):
+                    break
+            if u_input.startswith("y"):
+                print("No more results found.")
+        else:
+            print(result)
         if func == exit_handler:
             break
 
